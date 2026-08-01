@@ -1,0 +1,5 @@
+cd coding_agent
+copy .env.example .env
+notepad .env    # add GEMINI_API_KEY
+copy path\to\buggy_script.py workspace\buggy_script.py
+python agent.py "read buggy_script.py, identify all bugs, fix them, then run it to verify. Explain every change."
