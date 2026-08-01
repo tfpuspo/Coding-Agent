@@ -1,144 +1,89 @@
 # Coding Agent (no framework, real tool execution)
 
-A coding agent built from scratch with the raw Gemini API and function
-calling -- no LangChain, no CrewAI, no framework. It can explore a codebase,
-read/write/edit files, and run real shell commands (tests, installs,
-scripts), iterating on its own until a task is done.
+A CLI-based coding agent built from scratch on the raw Gemini API with
+function calling -- no LangChain, no CrewAI. It reads/writes/edits files and
+runs shell commands inside a sandboxed workspace, iterating until the task
+is done -- all from your terminal, no GUI or web interface.
+
+## Why this project
+
+A minimal, from-scratch demo of how a coding agent actually works -- no
+framework hiding the mechanics. It shows the raw loop: the LLM picks a
+tool, the tool runs for real, the result feeds back, and it repeats until
+the task is done.
+
+## Stack
+
+- **Language:** Python
+- **Interface:** CLI (interactive REPL or one-off task via terminal) -- no GUI or web app
+- **LLM:** Google Gemini (`google-genai` SDK), via function calling
+- **Config:** `python-dotenv` for `.env` management
+- **No frameworks** -- no LangChain, no CrewAI, no agent SDK. Tool
+  definitions, the loop, and approval logic are all hand-written.
+
+**Key design choices:**
+- Sandboxed to a single `WORKSPACE_DIR` -- can't touch anything outside it
+- Human-in-the-loop approval before any write/edit/delete/command
+- Session persistence to JSON -- conversations can be resumed later
 
 ## How it works
 
-1. You give it a task ("fix the bug in main.py").
-2. Gemini decides which tool to call first (usually `list_files` or `read_file`).
-3. The tool actually runs on your machine and the result goes back to Gemini.
-4. Gemini decides the next step -- maybe `edit_file`, maybe `run_command` to
-   test the fix. This repeats until it has a final answer or hits the turn limit.
-5. Every write/edit/delete/command asks you to approve it first (shows a
-   diff or the exact command), unless you set `AUTO_APPROVE=true`.
+Give it a task -> Gemini picks a tool (`list_files`, `read_file`, `edit_file`,
+`write_file`, `delete_file`, `run_command`) -> the tool runs for real ->
+Gemini uses the result to decide the next step. Repeats until done or the
+turn limit is hit. Every write/edit/delete/command asks for your approval
+first, unless `AUTO_APPROVE=true`.
 
-## Safety model
+All of this is sandboxed to `WORKSPACE_DIR` (default `./workspace`) -- the
+agent can't touch anything outside it.
 
-Everything is sandboxed to `WORKSPACE_DIR` (default: `./workspace`). The
-agent physically cannot read, write, or run commands outside that folder --
-every path is resolved and checked before use. Point `WORKSPACE_DIR` at a
-real project folder once you trust it; keep it pointed at the throwaway
-`workspace/` folder while you're still testing.
-
-## 1. Install
+## Setup
 
 ```bash
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env            # then add your GEMINI_API_KEY
 ```
+Free key, no credit card: https://aistudio.google.com/apikey
 
-## 2. Configure
+## Run it
 
 ```bash
-cp .env.example .env
-```
-Fill in `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey).
-Everything else has a sensible default.
-
-## 3. Run it
-
-**Interactive mode** (like a real coding session -- keeps context across tasks):
-```bash
-python agent.py
-```
-```
-you> what files are in this project?
-you> read main.py and tell me what it does
-you> there's a bug in the add function, fix it and verify with a test run
-you> exit
+python agent.py                 # interactive REPL
+python agent.py "fix the bug in main.py"   # one-off task
 ```
 
-**One-off task mode:**
-```bash
-python agent.py "fix the bug in main.py, then run it to confirm it works"
-```
-
-## Included: a sample bug to try it on
-
-`workspace/main.py` ships with a deliberate bug (`add()` subtracts instead
-of adding) so you have something to point the agent at immediately:
-
+Try it on the included sample bug:
 ```bash
 python agent.py "there's a bug in main.py, find it, fix it, and run it to prove the fix works"
 ```
 
-Watch it: read the file, spot the bug, propose an edit (you'll be asked to
-approve the diff), then run `python main.py` itself to confirm the fix.
+## Extras
 
-## Session persistence & resuming
+- **Sessions**: every run is saved to `.sessions/`. Resume with
+  `python agent.py --resume <session_id>`.
+- **Switch models mid-session**: type `/model` in the REPL.
+- **Approval prompts**: `y` = approve once, `a` = approve and remember, `n` = reject.
 
-Every run (REPL or one-off task) saves its full conversation to
-`.sessions/<session_id>.json`. At the end of a session you'll see:
-```
-To continue this session, run: python agent.py --resume abc123def456
-```
-Run that command to pick the conversation back up with full context of
-everything discussed and done previously -- same idea as `codex resume`.
-
-## Switching models mid-session
-
-Inside the REPL, type:
-```
-/model
-```
-and enter a new model name. Useful if you hit a quota/deprecation error on
-one model and want to switch without restarting.
-
-## Approval flow
-
-When the agent wants to write, edit, delete a file, or run a command, you get:
-```
->>> APPROVE? Apply this edit to 'main.py'?
-    [y] yes, once   [a] yes, always for this   [n] no:
-```
-- `y` -- approve just this one action
-- `a` -- approve this action AND remember it, so the agent won't ask again
-  this session for the same file (write/edit) or same command name (run_command)
-- `n` (or anything else) -- reject
-
-## Token usage
-
-At the end of each REPL session (or one-off task), you'll see a summary:
-```
-Token usage: total=14,773 input=13,593 (+127,232 cached) output=1,180
-```
-
-
-
-| Tool | What it does |
-|---|---|
-| `list_files` | Recursively lists files in a directory |
-| `read_file` | Reads a file with line numbers |
-| `write_file` | Creates a new file or fully overwrites one (shows a diff, asks approval) |
-| `edit_file` | Replaces one exact, unique string in a file (safer than a full rewrite) |
-| `delete_file` | Deletes a file (asks approval) |
-| `run_command` | Runs a shell command in the workspace, e.g. `pytest`, `pip install x`, `python script.py` (asks approval, has a timeout) |
-
-## Config reference (`.env`)
+## Config (`.env`)
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GEMINI_API_KEY` | (required) | Your free Gemini API key |
+| `GEMINI_API_KEY` | (required) | Your Gemini API key |
 | `WORKSPACE_DIR` | `./workspace` | The only folder the agent can touch |
 | `MODEL` | `gemini-3.5-flash-lite` | Which Gemini model to use |
-| `MAX_TURNS` | `25` | Max tool-calling loops per task before giving up |
+| `MAX_TURNS` | `25` | Max tool-calling loops per task |
 | `COMMAND_TIMEOUT` | `60` | Seconds before a shell command is killed |
-| `AUTO_APPROVE` | `false` | If `true`, skips all approval prompts -- use with caution |
+| `AUTO_APPROVE` | `false` | Skip approval prompts if `true` |
 
-## A note on models
+## Tools
 
-Google's Gemini model lineup and free-tier quotas have been shifting fast.
-If you hit a `404 ... no longer available` or `429 RESOURCE_EXHAUSTED`
-error, check which models are currently enabled for your account at
-https://aistudio.google.com/apikey and update `MODEL` in `.env` accordingly.
-
-## Extending it
-
-This is intentionally minimal so you can see exactly how it works. Natural
-next additions: a `search_files` tool (grep-like), a `git_diff`/`git_commit`
-tool, or splitting `run_command` into safer, narrower tools (`run_tests`,
-`install_package`) if you want less freedom for the agent.
+| Tool | What it does |
+|---|---|
+| `list_files` | Lists files recursively |
+| `read_file` | Reads a file with line numbers |
+| `write_file` | Creates/overwrites a file (shows diff, asks approval) |
+| `edit_file` | Replaces one exact string in a file |
+| `delete_file` | Deletes a file (asks approval) |
+| `run_command` | Runs a shell command (asks approval, has a timeout) |
