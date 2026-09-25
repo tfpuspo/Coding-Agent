@@ -45,7 +45,6 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env            # then add your GEMINI_API_KEY
 ```
-Free key, no credit card: https://aistudio.google.com/apikey
 
 ## Run it
 
